@@ -158,63 +158,69 @@ class AddressNormalizer:
     def parse_house_number(self, text: str) -> Dict[str, Optional[str]]:
         """
         Парсинг номера дома на составные части.
-
+        
+        Поддерживает несколько «ступеней» (корпус, строение, литера и т.п.), например:
+            "2 к2 с1" -> main="2", extras=[("к","2"), ("с","1")]
+        
         Возвращает словарь:
             {
-                "main": "10",         # основной номер
-                "extra_type": "к"     # тип доп. части: к (корпус), с (строение), л (литера) и т.п.
-                "extra_number": "1"   # номер корпуса/строения
+                "main": "10",          # основной номер
+                "extra_type": "к",     # тип первой доп. части (для обратной совместимости)
+                "extra_number": "1",   # номер первой доп. части
+                "extras": [("к","1"), ("с","4"), ...]  # полный список доп. частей
             }
         """
-        result = {
+        result: Dict[str, Optional[str]] = {
             "main": None,
             "extra_type": None,
             "extra_number": None,
         }
+        # Полный список доп. частей (тип, номер)
+        extras = []
+
         if not text:
+            result["extras"] = extras
             return result
 
         t = str(text).lower().strip()
         # Убираем лишние пробелы
         t = re.sub(r'\s+', ' ', t)
 
-        # Общий шаблон: <число/число+буква> [тип] [номер]
-        pattern = re.compile(
-            r'(?P<main>\d+[а-яa-z]?)'
-            r'(?:\s*(?P<extra_type>к|корп|корпус|с|стр|строение|лит|литера)\.?\s*'
-            r'(?P<extra_num>\d+[а-яa-z]?)?)?',
-            re.IGNORECASE,
-        )
+        # Приводим обозначения корпуса/строения/литеры к короткой форме
+        # корпус / корп. / к. -> к
+        t = re.sub(r'\b(корпус|корп\.?|к)\b', 'к', t)
+        # строение / стр. / с. -> с
+        t = re.sub(r'\b(строение|стр\.?|с)\b', 'с', t)
+        # литера / лит. / л. -> л
+        t = re.sub(r'\b(литера|лит\.?|л)\b', 'л', t)
 
-        m = pattern.search(t)
-        if not m:
+        # Основной номер дома: первое число (возможно с буквой)
+        m_main = re.search(r'\d+[а-яa-z]?', t)
+        if not m_main:
             # Если не распознали шаблон, считаем всё основным номером
             result["main"] = t or None
+            result["extras"] = extras
             return result
 
-        main = m.group("main")
-        extra_type = m.group("extra_type")
-        extra_num = m.group("extra_num")
-
-        if not main:
-            return result
-
+        main = m_main.group(0)
         result["main"] = main
 
-        if extra_type:
-            extra_type = extra_type.lower()
-            if extra_type.startswith("кор"):
-                result["extra_type"] = "к"
-            elif extra_type.startswith("стр") or extra_type.startswith("стро"):
-                result["extra_type"] = "с"
-            elif extra_type.startswith("лит"):
-                result["extra_type"] = "л"
-            else:
-                result["extra_type"] = extra_type
+        # Остаток строки после основного номера
+        rest = t[m_main.end():]
 
-        if extra_num:
-            result["extra_number"] = extra_num
+        # Ищем все дополнительные части вида "к2", "с7", "л1" и т.п.
+        for m in re.finditer(r'(к|с|л)\s*(\d+[а-яa-z]?)', rest):
+            extra_type = m.group(1)
+            extra_num = m.group(2)
+            extras.append((extra_type, extra_num))
 
+        if extras:
+            # Для обратной совместимости заполняем первую доп. часть
+            result["extra_type"] = extras[0][0]
+            result["extra_number"] = extras[0][1]
+
+        # Полный список доп. частей
+        result["extras"] = extras
         return result
 
     def normalize_house_number(self, text: str) -> str:
@@ -230,17 +236,19 @@ class AddressNormalizer:
             return ""
 
         info = self.parse_house_number(text)
-        main = info["main"]
+        main = info.get("main")
         if not main:
             return ""
 
-        extra_type = info["extra_type"]
-        extra_num = info["extra_number"]
+        # Собираем полный канонический номер:
+        #   "2", [("к","2"), ("с","1")] -> "2к2с1"
+        parts = [main]
+        extras = info.get("extras") or []
+        for extra_type, extra_num in extras:
+            if extra_type and extra_num:
+                parts.append(f"{extra_type}{extra_num}")
 
-        if extra_type and extra_num:
-            return f"{main}{extra_type}{extra_num}"
-
-        return main
+        return "".join(parts)
     
     def parse_address(self, address: str) -> Dict[str, Optional[str]]:
         """
@@ -262,7 +270,7 @@ class AddressNormalizer:
         }
         
         # Разбиваем по запятым
-        parts = [p.strip() for p in normalized.split(',')]
+        parts = [p.strip() for p in normalized.split(',') if p.strip()]
         
         # Ищем город (обычно первая часть)
         if len(parts) > 0:
@@ -272,20 +280,33 @@ class AddressNormalizer:
                 result['locality'] = 'Москва'
                 parts = parts[1:] if len(parts) > 1 else []
         
-        # Ищем улицу
-        if len(parts) > 0:
-            street_part = parts[0]
-            street_info = self.parse_street(street_part)
-            # Сохраняем только имя улицы (без типа) как основной компонент
-            result['street'] = street_info["name"] or street_part
+        # Если после города ничего не осталось — возвращаем то, что есть
+        if not parts:
+            return result
+
+        # Пытаемся интерпретировать ПОСЛЕДНЮЮ часть как номер дома.
+        # Это важно для случаев вида "МКАД, 78-й километр, 2 к2 с1":
+        #   улица = "МКАД, 78-й километр"
+        #   номер = "2к2с1"
+        street_parts = parts[:]
+        last_part = parts[-1]
+        candidate_number = self.normalize_house_number(last_part)
+        if candidate_number:
+            result['number'] = candidate_number
+            street_parts = parts[:-1]  # всё до номера считаем улицей
         
-        # Ищем номер дома
-        if len(parts) > 1:
-            number_part = parts[1]
-            # Извлекаем номер дома и нормализуем
-            normalized_number = self.normalize_house_number(number_part)
-            if normalized_number:
-                result['number'] = normalized_number
+        # Ищем улицу (всё, что осталось до номера)
+        if street_parts:
+            street_raw = ', '.join(street_parts)
+            street_info = self.parse_street(street_raw)
+            # Каноническое имя улицы: "тверская пл", "тверская ул", "мкад 78-й километр"
+            if street_info["name"]:
+                street_name = street_info["name"]
+                if street_info["type"]:
+                    street_name = f"{street_name} {street_info['type']}"
+                result['street'] = street_name
+            else:
+                result['street'] = street_raw
         
         # Если номер не нашли во второй части, попробуем поискать по всей строке
         if result['number'] is None:
@@ -318,6 +339,53 @@ class AddressNormalizer:
         
         return ' '.join(expanded)
     
+    def format_house_number_display(self, text: str) -> str:
+        """
+        Форматирование номера дома для вывода в человеко‑читаемом виде.
+        
+        Требуемый формат:
+            "{номер дома} {кN} {сM} ..."
+        Пример:
+            raw:  "50к1с15" или "50 к1 с15" -> "50 к1 с15"
+        """
+        if not text:
+            return ""
+        
+        info = self.parse_house_number(text)
+        main = info.get("main")
+        if not main:
+            return ""
+        
+        parts = [main]
+        extras = info.get("extras") or []
+        for extra_type, extra_num in extras:
+            if extra_type and extra_num:
+                parts.append(f"{extra_type}{extra_num}")
+        
+        return " ".join(parts)
+    
+    def normalize_components_for_output(self, locality: str, street: str, number: str) -> Dict[str, str]:
+        """
+        Нормализация компонентов адреса к формату, описанному в задании:
+            \"{город}, {улица}, {номер дома} {номер корпус} {строение}\"
+        
+        - Названия объектов без сокращений (ул. -> улица, пр-т -> проспект и т.д.).
+        - Порядок слов в названии улицы сохраняем как в исходных данных,
+          но убираем сокращения.
+        """
+        loc = (locality or "").strip() or "Москва"
+        street_raw = (street or "").strip()
+        number_raw = (number or "").strip()
+
+        street_out = self.expand_abbreviations(street_raw) if street_raw else ""
+        number_out = self.format_house_number_display(number_raw) if number_raw else ""
+
+        return {
+            "locality": loc,
+            "street": street_out,
+            "number": number_out,
+        }
+    
     def create_full_address(self, locality: str, street: str, number: str) -> str:
         """
         Создание полного адреса из компонентов.
@@ -339,6 +407,29 @@ class AddressNormalizer:
             parts.append(f"д. {number}")
         
         return ", ".join(parts)
+    
+    def canonicalize_street(self, text: str) -> str:
+        """
+        Приведение улицы к каноническому виду для индексов и сравнения.
+        
+        Примеры:
+            "Тверская площадь"   -> "тверская пл"
+            "пл. Тверская"       -> "тверская пл"
+            "ул. Твардовского"   -> "твардовского ул"
+        """
+        if not text:
+            return ""
+        
+        info = self.parse_street(text)
+        if not info["name"]:
+            # Если не смогли распарсить, просто нормализуем строку
+            return self.normalize(text)
+        
+        name = info["name"]
+        if info["type"]:
+            return f"{name} {info['type']}"
+        
+        return name
     
     def calculate_similarity(self, addr1: str, addr2: str) -> float:
         """

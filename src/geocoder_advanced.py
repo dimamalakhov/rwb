@@ -169,29 +169,24 @@ class AdvancedGeocoder:
 
         # --- Фичи для логистической модели ---
 
-        # 1. Схожесть номера дома (учет основного номера и корпуса/строения)
+        # 1. Схожесть номера дома (учет полного канонического номера: основной + корпус/строение)
         number_query_raw = str(parsed_query.get('number', '') or "").strip()
         number_query_norm = self.normalizer.normalize_house_number(number_query_raw) if number_query_raw else ""
         number_data_norm = str(row.get('number_normalized', '') or "").strip()
 
         if number_query_norm and number_data_norm:
-            q_info = self.normalizer.parse_house_number(number_query_norm)
-            d_info = self.normalizer.parse_house_number(number_data_norm)
-
-            if q_info["main"] and d_info["main"]:
-                if q_info["main"] == d_info["main"]:
-                    if (
-                        q_info["extra_type"] == d_info["extra_type"]
-                        and q_info["extra_number"] == d_info["extra_number"]
-                        and q_info["extra_type"] is not None
-                    ):
-                        number_similarity = 1.0
-                    else:
-                        number_similarity = 0.8
+            # Полное совпадение канонических номеров (включая строения/корпуса)
+            if number_query_norm == number_data_norm:
+                number_similarity = 1.0
+            else:
+                # Частичное совпадение: совпадает основной номер, но отличаются детали
+                q_info = self.normalizer.parse_house_number(number_query_norm)
+                d_info = self.normalizer.parse_house_number(number_data_norm)
+                if q_info.get("main") and d_info.get("main") and q_info["main"] == d_info["main"]:
+                    # Совпал основной номер, но корпус/строение отличаются -> ощутимый штраф
+                    number_similarity = 0.3
                 else:
                     number_similarity = 0.0
-            else:
-                number_similarity = 0.0
         else:
             number_similarity = 0.5 if not number_query_norm else 0.0
 
@@ -307,10 +302,16 @@ class AdvancedGeocoder:
         for idx, score in candidates[:max_results]:
             row = self.buildings.loc[idx]
             centroid = row.geometry.centroid
+            locality_raw = str(row.get('locality', 'Москва'))
+            street_raw = str(row.get('street', ''))
+            number_raw = str(row.get('number', ''))
+            components = self.normalizer.normalize_components_for_output(
+                locality_raw, street_raw, number_raw
+            )
             results.append({
-                'locality': str(row.get('locality', 'Москва')),
-                'street': str(row.get('street', '')),
-                'number': str(row.get('number', '')),
+                'locality': components['locality'],
+                'street': components['street'],
+                'number': components['number'],
                 'lon': float(centroid.x),
                 'lat': float(centroid.y),
                 'score': round(score, 4)

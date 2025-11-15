@@ -25,9 +25,10 @@ class BaseGeocoder:
     
     def _build_index(self):
         """Построение индекса для поиска."""
-        # Нормализуем адреса в данных
+        # Нормализуем улицы в данных до канонического вида
+        # (учитываем тип: ул/пл/ш и т.п., чтобы "Тверская площадь" и "пл. Тверская" совпадали)
         self.buildings['street_normalized'] = self.buildings['street'].apply(
-            lambda x: self.normalizer.normalize(str(x)) if pd.notna(x) else ""
+            lambda x: self.normalizer.canonicalize_street(str(x)) if pd.notna(x) else ""
         )
         # Нормализация номера дома (учёт корпуса/строения)
         self.buildings['number_normalized'] = self.buildings['number'].apply(
@@ -103,13 +104,20 @@ class BaseGeocoder:
         results = []
         for idx, row in matches.head(max_results).iterrows():
             centroid = row.geometry.centroid
+            locality_raw = str(row.get('locality', 'Москва'))
+            street_raw = str(row.get('street', ''))
+            number_raw = str(row.get('number', ''))
+            components = self.normalizer.normalize_components_for_output(
+                locality_raw, street_raw, number_raw
+            )
+
             results.append({
-                'locality': str(row.get('locality', 'Москва')),
-                'street': str(row.get('street', '')),
-                'number': str(row.get('number', '')),
+                'locality': components['locality'],
+                'street': components['street'],
+                'number': components['number'],
                 'lon': float(centroid.x),
                 'lat': float(centroid.y),
-                'score': 1.0  # Базовый алгоритм возвращает score=1.0 для точных совпадений
+                'score': 1.0,  # Базовый алгоритм возвращает score=1.0 для точных совпадений
             })
         
         return results

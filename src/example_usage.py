@@ -130,7 +130,7 @@ def main():
         return
 
     # Берём фиксированные 100 случайных зданий (или меньше, если данных мало)
-    n_samples = min(100, len(buildings_with_addr))
+    n_samples = min(2000, len(buildings_with_addr))
 
     print(f"Всего зданий: {total_buildings}")
     print(f"Зданий с непустыми адресами: {len(buildings_with_addr)}")
