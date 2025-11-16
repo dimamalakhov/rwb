@@ -129,12 +129,11 @@ def main():
         print("Нет зданий с непустыми улицей и номером, метрики по батчу не считаются.")
         return
 
-    # Берём фиксированные 100 случайных зданий (или меньше, если данных мало)
     n_samples = min(2000, len(buildings_with_addr))
 
     print(f"Всего зданий: {total_buildings}")
     print(f"Зданий с непустыми адресами: {len(buildings_with_addr)}")
-    print(f"Используем для метрик (100 случайных): {n_samples}")
+    print(f"Используем для метрик: {n_samples}")
 
     samples = buildings_with_addr.sample(n=n_samples, random_state=42).reset_index(drop=True)
 
@@ -183,7 +182,7 @@ def main():
 
     batch_metrics = GeocodingMetrics.evaluate_batch(predictions, ground_truth)
     
-    print("\nСводные метрики по 20% датасета:")
+    print("\nСводные метрики по датасету:")
     print(f"  text_score_mean:      {batch_metrics['text_score_mean']:.4f}")
     print(f"  text_score_median:    {batch_metrics['text_score_median']:.4f}")
     print(f"  coord_score_mean:     {batch_metrics['coord_score_mean']:.4f}")

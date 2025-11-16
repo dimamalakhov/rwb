@@ -68,7 +68,42 @@ class AddressNormalizer:
     }
     
     # Обратный словарь для расшифровки (используется при expand_abbreviations)
+    # Базово строим его из ABBREVIATIONS, а затем переопределяем ключевые
+    # сокращения на «человеческие» полные формы (улица, проспект и т.д.),
+    # чтобы вывод соответствовал формату проверки.
     EXPANSIONS = {v: k for k, v in ABBREVIATIONS.items()}
+    EXPANSIONS.update(
+        {
+            # Населённые пункты
+            "г": "город",
+            "п": "поселок",
+            "пгт": "поселок городского типа",
+            "с": "село",
+            "д": "деревня",
+            "ст": "станица",
+            "х": "хутор",
+            # Типы улиц
+            "ул": "улица",
+            "пр-кт": "проспект",
+            "пр-т": "проспект",
+            "пр-т.": "проспект",
+            "просп.": "проспект",
+            "просп": "проспект",
+            "пер": "переулок",
+            "пр-д": "проезд",
+            "б-р": "бульвар",
+            "пл": "площадь",
+            "наб": "набережная",
+            "ш": "шоссе",
+            "ал": "аллея",
+            "кв-л": "квартал",
+            # Дом / корпус / строение / литера
+            "д": "дом",
+            "стр": "строение",
+            "корп": "корпус",
+            "лит": "литера",
+        }
+    )
     
     def __init__(self):
         """Инициализация нормализатора."""
@@ -284,21 +319,62 @@ class AddressNormalizer:
             if any(marker in first_part for marker in ['москва', 'г ', 'город']):
                 result['locality'] = 'Москва'
                 parts = parts[1:] if len(parts) > 1 else []
+
+        # Обработка случая, когда корпус/строение отделены запятой от основного номера:
+        #   "Керченская 1а, к3" -> ["Керченская 1а к3"]
+        if len(parts) >= 2:
+            prev = parts[-2]
+            last = parts[-1]
+            prev_norm = self.normalize(prev)
+            # Если последний фрагмент начинается с обозначения корпуса/строения,
+            # а предыдущий заканчивается на число (возможно с буквой), считаем, что
+            # номер дома разбит запятой и склеиваем эти части.
+            if re.search(r'\d[а-яa-z]?$', prev_norm) and re.match(r'^(к|корпус|корп\.?|с|стр\.?|лит\.?|л)', last):
+                parts = parts[:-2] + [prev + ' ' + last]
         
         # Если после города ничего не осталось — возвращаем то, что есть
         if not parts:
             return result
 
-        # Пытаемся интерпретировать ПОСЛЕДНЮЮ часть как номер дома.
-        # Это важно для случаев вида "МКАД, 78-й километр, 2 к2 с1":
-        #   улица = "МКАД, 78-й километр"
-        #   номер = "2к2с1"
-        street_parts = parts[:]
+        # Пытаемся выделить номер дома в ПОСЛЕДНЕМ фрагменте и отделить его от улицы.
+        # Работает как для адресов с запятой, так и без:
+        #   "Москва, Тверская улица, 10"        -> street="тверская ул", number="10"
+        #   "Тверская улица 10"                 -> street="тверская ул", number="10"
+        #   "улица Керченская 1А к3"            -> street="керченская ул", number="1а к3"
+        #   "улица 1 Мая 30/2"                  -> street="1 мая ул",    number="30к2"
+        street_parts = list(parts[:-1])
         last_part = parts[-1]
-        candidate_number = self.normalize_house_number(last_part)
-        if candidate_number:
-            result['number'] = candidate_number
-            street_parts = parts[:-1]  # всё до номера считаем улицей
+
+        tokens = last_part.split()
+        number_tokens = []
+
+        # Сканируем токены справа налево и забираем «числовой хвост»:
+        # токены, содержащие цифры, либо служебные маркеры корпуса/строения/литеры.
+        def _is_number_like(tok: str) -> bool:
+            t = tok.strip().lower()
+            if not t:
+                return False
+            if any(ch.isdigit() for ch in t):
+                return True
+            base = t.rstrip('.')
+            return base in {"к", "корп", "корпус", "стр", "с", "лит", "б/н"}
+
+        i = len(tokens) - 1
+        while i >= 0 and _is_number_like(tokens[i]):
+            number_tokens.insert(0, tokens[i])
+            i -= 1
+
+        if number_tokens:
+            number_text = " ".join(number_tokens)
+            number_norm = self.normalize_house_number(number_text)
+            if number_norm:
+                result["number"] = number_norm
+                street_text = " ".join(tokens[: i + 1]).strip()
+                if street_text:
+                    street_parts.append(street_text)
+        else:
+            # Не нашли явного номера — весь фрагмент считаем частью улицы
+            street_parts.append(last_part)
         
         # Ищем улицу (всё, что осталось до номера)
         if street_parts:
@@ -313,12 +389,9 @@ class AddressNormalizer:
             else:
                 result['street'] = street_raw
         
-        # Если номер не нашли во второй части, попробуем поискать по всей строке
-        if result['number'] is None:
-            normalized_number = self.normalize_house_number(normalized)
-            if normalized_number:
-                result['number'] = normalized_number
-        
+        # Если номер не нашли, оставляем его None.
+        # Для запросов без явного номера (например, "Москва, Керченская")
+        # геокодер будет искать все здания по совпадению только по улице.
         return result
     
     def expand_abbreviations(self, text: str) -> str:
