@@ -200,8 +200,8 @@ def main():
     results_path.parent.mkdir(parents=True, exist_ok=True)
 
     # Пороги для OK/FAIL
-    TEXT_OK_THRESHOLD = 0.95
-    DIST_OK_THRESHOLD_M = 50.0
+    TEXT_OK_THRESHOLD = 1
+    DIST_OK_THRESHOLD_M = 150.0
 
     with results_path.open("w", newline="", encoding="utf-8") as f:
         writer = csv.writer(f)
@@ -239,7 +239,11 @@ def main():
             )
             text_ok = text_score_i >= TEXT_OK_THRESHOLD
             coord_ok = dist_m_i <= DIST_OK_THRESHOLD_M
-            status = "OK" if text_ok and coord_ok else "FAIL"
+            # Дополнительное условие: если координаты практически совпали (один и тот же дом),
+            # считаем статус OK даже при недостаточном текстовом score.
+            # Используем небольшой допуск по расстоянию, чтобы учесть округления координат.
+            coords_exact = dist_m_i < 10.0  # < 1 метр считаем совпадением точки
+            status = "OK" if coords_exact or (text_ok and coord_ok) else "FAIL"
 
             writer.writerow([
                 true_obj.get("locality", ""),

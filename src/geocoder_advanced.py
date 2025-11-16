@@ -170,8 +170,10 @@ class AdvancedGeocoder:
         # --- Фичи для логистической модели ---
 
         # 1. Схожесть номера дома (учет полного канонического номера: основной + корпус/строение)
-        number_query_raw = str(parsed_query.get('number', '') or "").strip()
-        number_query_norm = self.normalizer.normalize_house_number(number_query_raw) if number_query_raw else ""
+        # parsed_query['number'] уже хранится в каноническом виде (см. parse_address),
+        # поэтому здесь НЕ выполняем повторную нормализацию, чтобы не терять корпус/строение
+        # для строк вроде "20к2".
+        number_query_norm = str(parsed_query.get('number', '') or "").strip()
         number_data_norm = str(row.get('number_normalized', '') or "").strip()
 
         if number_query_norm and number_data_norm:
@@ -234,8 +236,33 @@ class AdvancedGeocoder:
         score = 1.0 / (1.0 + math.exp(-z))
 
         return float(score)
+
+    @staticmethod
+    def _apply_street_weight(base_score: float, street_similarity: float, power: float = 3.0) -> float:
+        """
+        Дополнительная коррекция score с учетом схожести улицы.
+
+        Идея:
+        - логистическая модель смотрит на street_similarity, но её вклад ограничен;
+          при похожем номере/полном адресе разные улицы могут получать слишком
+          близкие score (0.98+).
+        - чтобы более явно отделить «нужную» улицу от остальных, домножаем
+          итоговый score на street_similarity ** power.
+
+        Свойства:
+        - для street_similarity ≈ 1.0 корректировка практически не меняет score;
+        - для улиц с similarity ~0.7 результат заметно падает (0.7^3 ≈ 0.34);
+        - по-прежнему возвращаем значение в [0, 1].
+        """
+        if street_similarity is None:
+            return float(base_score)
+
+        s = max(0.0, min(1.0, float(street_similarity)))
+        adjusted = float(base_score) * (s ** power)
+        # На всякий случай ограничим диапазон
+        return max(0.0, min(1.0, adjusted))
     
-    def geocode(self, address: str, max_results: int = 10, 
+    def geocode(self, address: str, max_results: int = 10,
                 street_threshold: int = 60) -> List[Dict]:
         """
         Геокодирование адреса (улучшенный алгоритм).
@@ -252,12 +279,14 @@ class AdvancedGeocoder:
         parsed = self.normalizer.parse_address(address)
         
         query_street = parsed.get('street', '') or ''
-        query_number = parsed.get('number', '') or ''
+        # parse_address уже возвращает номер в каноническом формате ("20к2"),
+        # поэтому используем его напрямую без повторной нормализации.
+        query_number = parsed.get('number') or ''
 
         # Нормализованные компоненты для полного адреса
         query_locality = parsed.get('locality') or 'Москва'
         query_street_norm = self.normalizer.normalize(query_street)
-        query_number_norm = self.normalizer.normalize_house_number(query_number)
+        query_number_norm = str(query_number or "").strip()
         query_full = self.normalizer.create_full_address(
             query_locality,
             query_street_norm,
@@ -288,10 +317,12 @@ class AdvancedGeocoder:
 
                 if match:
                     score = self._calculate_score(row, parsed, street_score, query_full)
+                    score = self._apply_street_weight(score, street_score)
                     candidates.append((idx, score))
             else:
                 # Номер не указан, используем только схожесть улицы
                 score = self._calculate_score(row, parsed, street_score, query_full)
+                score = self._apply_street_weight(score, street_score)
                 candidates.append((idx, score))
 
         # Сортируем по score

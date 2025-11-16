@@ -1,0 +1,1269 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Геокодирование адресов Москвы</title>
+  <!-- Leaflet CSS -->
+  <link
+    rel="stylesheet"
+    href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"
+    integrity="sha256-p4NxAoJBhIIN+hmNHrzRCf9tD/miZyoHS5obTRR9BMY="
+    crossorigin=""
+  />
+  <style>
+    :root {
+      --bg: #050816;
+      --bg-elevated: #0b1020;
+      --bg-elevated-soft: #111827;
+      --accent: #22c55e;
+      --accent-soft: rgba(34, 197, 94, 0.15);
+      --accent-soft-strong: rgba(34, 197, 94, 0.3);
+      --accent-muted: #4ade80;
+      --border-subtle: rgba(148, 163, 184, 0.3);
+      --border-strong: rgba(148, 163, 184, 0.6);
+      --text-main: #e5e7eb;
+      --text-soft: #9ca3af;
+      --text-muted: #6b7280;
+      --danger: #f97373;
+      --shadow-soft: 0 18px 45px rgba(15, 23, 42, 0.75);
+      --radius-lg: 22px;
+      --radius-md: 14px;
+      --radius-pill: 999px;
+      --transition-fast: 150ms ease-out;
+      --transition-med: 220ms ease-out;
+    }
+
+    * {
+      box-sizing: border-box;
+    }
+
+    body {
+      margin: 0;
+      padding: 0;
+      font-family: system-ui, -apple-system, BlinkMacSystemFont, "SF Pro Text",
+        "Segoe UI", sans-serif;
+      background: radial-gradient(circle at top left, #111827 0, #020617 60%);
+      color: var(--text-main);
+      min-height: 100vh;
+      display: flex;
+      align-items: stretch;
+      justify-content: center;
+    }
+
+    .page {
+      width: 100%;
+      max-width: 1200px;
+      padding: 20px 16px;
+      display: flex;
+      flex-direction: column;
+      gap: 16px;
+    }
+
+    @media (min-width: 960px) {
+      .page {
+        padding: 28px 24px;
+      }
+    }
+
+    .brand-row {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 12px;
+      margin-bottom: 4px;
+    }
+
+    .brand-main {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+    }
+
+    .brand-mark {
+      width: 32px;
+      height: 32px;
+      border-radius: 9px;
+      background: radial-gradient(circle at 20% 20%, #4ade80 0, #16a34a 32%, #0f766e 70%);
+      box-shadow: 0 0 0 1px rgba(34, 197, 94, 0.3),
+        0 12px 30px rgba(16, 185, 129, 0.4);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      position: relative;
+      overflow: hidden;
+    }
+
+    .brand-mark::after {
+      content: "";
+      position: absolute;
+      inset: 0;
+      background: radial-gradient(circle at 0 0, rgba(255, 255, 255, 0.22), transparent 58%);
+      mix-blend-mode: screen;
+      opacity: 0.9;
+    }
+
+    .brand-mark span {
+      font-size: 18px;
+      font-weight: 700;
+      color: #ecfeff;
+      letter-spacing: 0.03em;
+      position: relative;
+      z-index: 1;
+    }
+
+    .brand-text-main {
+      font-size: 18px;
+      font-weight: 600;
+      letter-spacing: 0.01em;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+
+    .brand-text-main span.highlight {
+      color: var(--accent-muted);
+    }
+
+    .brand-text-sub {
+      font-size: 13px;
+      color: var(--text-soft);
+    }
+
+    .chip {
+      border-radius: 999px;
+      border: 1px solid rgba(148, 163, 184, 0.35);
+      padding: 4px 10px;
+      font-size: 11px;
+      color: var(--text-muted);
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      background: radial-gradient(circle at top left, rgba(148, 163, 184, 0.08), rgba(15, 23, 42, 0.9));
+    }
+
+    .chip-dot {
+      width: 8px;
+      height: 8px;
+      border-radius: 999px;
+      background: radial-gradient(circle, var(--accent-muted) 0, #16a34a 60%);
+      box-shadow: 0 0 0 3px rgba(34, 197, 94, 0.2);
+    }
+
+    .chip-label {
+      font-weight: 500;
+      color: var(--text-soft);
+    }
+
+    .layout {
+      display: flex;
+      flex-direction: column;
+      gap: 14px;
+      min-height: min(680px, calc(100vh - 110px));
+    }
+
+    @media (min-width: 960px) {
+      .layout {
+        flex-direction: row;
+        gap: 16px;
+      }
+    }
+
+    .panel {
+      background: radial-gradient(circle at top left, rgba(148, 163, 184, 0.18), transparent 50%),
+        linear-gradient(135deg, rgba(15, 23, 42, 0.98), rgba(15, 23, 42, 0.96));
+      border-radius: var(--radius-lg);
+      border: 1px solid rgba(148, 163, 184, 0.32);
+      box-shadow: var(--shadow-soft);
+      padding: 18px 16px 14px;
+      display: flex;
+      flex-direction: column;
+      gap: 12px;
+    }
+
+    @media (min-width: 960px) {
+      .panel {
+        padding: 18px 18px 14px;
+      }
+    }
+
+    .panel-left {
+      flex: 0 0 360px;
+      max-width: 420px;
+    }
+
+    .panel-right {
+      flex: 1;
+      min-height: 340px;
+    }
+
+    @media (max-width: 959px) {
+      .panel-left,
+      .panel-right {
+        flex: 0 0 auto;
+        max-width: 100%;
+      }
+    }
+
+    .search-header {
+      display: flex;
+      flex-direction: column;
+      gap: 4px;
+    }
+
+    .search-title-row {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 8px;
+    }
+
+    .search-title {
+      font-size: 15px;
+      font-weight: 600;
+      letter-spacing: 0.01em;
+    }
+
+    .badge {
+      font-size: 11px;
+      color: var(--text-soft);
+      border-radius: 999px;
+      border: 1px solid rgba(148, 163, 184, 0.36);
+      padding: 2px 8px;
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      background: radial-gradient(circle at top left, rgba(148, 163, 184, 0.15), rgba(15, 23, 42, 0.95));
+    }
+
+    .badge-dot {
+      width: 7px;
+      height: 7px;
+      border-radius: 999px;
+      background: radial-gradient(circle, var(--accent-muted) 0, #15803d 60%);
+    }
+
+    .search-subtitle {
+      font-size: 12px;
+      color: var(--text-soft);
+      line-height: 1.5;
+    }
+
+    .search-shell {
+      margin-top: 10px;
+      border-radius: var(--radius-md);
+      border: 1px solid var(--border-subtle);
+      background: radial-gradient(circle at top left, rgba(15, 23, 42, 0.85), rgba(15, 23, 42, 0.96));
+      padding: 9px 9px 8px;
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+    }
+
+    .search-row {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+
+    .search-input-wrap {
+      position: relative;
+      flex: 1;
+      display: flex;
+      align-items: center;
+      gap: 6px;
+    }
+
+    .search-prefix {
+      position: absolute;
+      left: 10px;
+      top: 50%;
+      transform: translateY(-50%);
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      width: 26px;
+      height: 26px;
+      border-radius: 999px;
+      border: 1px solid rgba(148, 163, 184, 0.45);
+      background: radial-gradient(circle at top left, rgba(148, 163, 184, 0.25), rgba(15, 23, 42, 0.95));
+      font-size: 13px;
+      color: var(--text-soft);
+      pointer-events: none;
+    }
+
+    .search-input {
+      width: 100%;
+      padding: 9px 10px 9px 40px;
+      border-radius: 13px;
+      border: 1px solid transparent;
+      background: rgba(15, 23, 42, 0.9);
+      color: var(--text-main);
+      font-size: 13px;
+      outline: none;
+      transition: border-color var(--transition-fast), box-shadow var(--transition-fast),
+        background-color var(--transition-fast), transform 90ms ease-out;
+    }
+
+    .search-input::placeholder {
+      color: var(--text-muted);
+    }
+
+    .search-input:focus {
+      border-color: var(--accent-soft-strong);
+      box-shadow: 0 0 0 1px rgba(34, 197, 94, 0.45);
+      background: rgba(15, 23, 42, 0.98);
+      transform: translateY(-0.5px);
+    }
+
+    .search-input:not(:focus):hover {
+      border-color: rgba(148, 163, 184, 0.7);
+    }
+
+    .search-button {
+      border-radius: 14px;
+      padding: 8px 14px;
+      border: none;
+      font-size: 13px;
+      font-weight: 500;
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      cursor: pointer;
+      color: #022c22;
+      background: radial-gradient(circle at 30% 0, #22c55e, #16a34a);
+      box-shadow: 0 10px 25px rgba(22, 163, 74, 0.65);
+      transition: transform var(--transition-fast), box-shadow var(--transition-fast),
+        filter var(--transition-fast), background var(--transition-fast);
+      white-space: nowrap;
+    }
+
+    .search-button span.icon {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      width: 18px;
+      height: 18px;
+      border-radius: 999px;
+      background: rgba(6, 95, 70, 0.13);
+      color: #064e3b;
+      font-size: 11px;
+    }
+
+    .search-button:hover {
+      transform: translateY(-1px);
+      filter: brightness(1.02);
+      box-shadow: 0 14px 30px rgba(22, 163, 74, 0.8);
+    }
+
+    .search-button:active {
+      transform: translateY(0.5px) scale(0.99);
+      box-shadow: 0 8px 18px rgba(22, 163, 74, 0.7);
+    }
+
+    .search-button:disabled {
+      cursor: default;
+      opacity: 0.7;
+      box-shadow: none;
+      transform: none;
+    }
+
+    .search-meta-row {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 8px;
+      flex-wrap: wrap;
+    }
+
+    .search-meta-text {
+      font-size: 11px;
+      color: var(--text-muted);
+    }
+
+    .algo-toggle {
+      display: inline-flex;
+      border-radius: 999px;
+      border: 1px solid rgba(148, 163, 184, 0.35);
+      padding: 1px;
+      background: radial-gradient(circle at top left, rgba(148, 163, 184, 0.16), rgba(15, 23, 42, 0.96));
+    }
+
+    .algo-option {
+      border-radius: 999px;
+      font-size: 11px;
+      padding: 3px 10px;
+      border: none;
+      background: transparent;
+      color: var(--text-muted);
+      cursor: pointer;
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      transition: background-color var(--transition-fast), color var(--transition-fast),
+        transform 90ms ease-out;
+    }
+
+    .algo-option span.dot {
+      width: 7px;
+      height: 7px;
+      border-radius: 999px;
+      background: rgba(148, 163, 184, 0.6);
+    }
+
+    .algo-option.active {
+      background: radial-gradient(circle at 30% 0, rgba(34, 197, 94, 0.85), rgba(5, 150, 105, 0.9));
+      color: #ecfdf5;
+      transform: translateY(-0.3px);
+    }
+
+    .algo-option.active span.dot {
+      background: #bbf7d0;
+    }
+
+    .examples-row {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 6px;
+      margin-top: 6px;
+    }
+
+    .example-pill {
+      border-radius: 999px;
+      border: 1px solid rgba(148, 163, 184, 0.45);
+      font-size: 11px;
+      padding: 4px 9px;
+      background: rgba(15, 23, 42, 0.9);
+      color: var(--text-soft);
+      cursor: pointer;
+      transition: border-color var(--transition-fast), background-color var(--transition-fast),
+        transform 90ms ease-out, box-shadow var(--transition-fast);
+      max-width: 100%;
+      white-space: nowrap;
+      text-overflow: ellipsis;
+      overflow: hidden;
+    }
+
+    .example-pill:hover {
+      border-color: rgba(148, 163, 184, 0.85);
+      background: rgba(15, 23, 42, 0.98);
+      transform: translateY(-0.3px);
+      box-shadow: 0 6px 14px rgba(15, 23, 42, 0.7);
+    }
+
+    .results-shell {
+      margin-top: 6px;
+      border-radius: var(--radius-md);
+      border: 1px solid rgba(148, 163, 184, 0.35);
+      background: radial-gradient(circle at top left, rgba(15, 23, 42, 0.9), rgba(15, 23, 42, 0.98));
+      padding: 8px 9px;
+      display: flex;
+      flex-direction: column;
+      gap: 6px;
+      min-height: 72px;
+      max-height: 260px;
+      overflow: hidden;
+    }
+
+    .results-header-row {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 8px;
+    }
+
+    .results-label {
+      font-size: 11px;
+      color: var(--text-soft);
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+    }
+
+    .results-label-dot {
+      width: 7px;
+      height: 7px;
+      border-radius: 999px;
+      background: var(--accent-soft-strong);
+      box-shadow: 0 0 0 3px rgba(34, 197, 94, 0.25);
+    }
+
+    .results-count {
+      font-size: 11px;
+      color: var(--text-muted);
+    }
+
+    .results-list {
+      margin: 0;
+      padding: 2px 0 0;
+      list-style: none;
+      overflow-y: auto;
+      scrollbar-width: thin;
+      scrollbar-color: rgba(148, 163, 184, 0.5) transparent;
+    }
+
+    .results-list::-webkit-scrollbar {
+      width: 6px;
+    }
+
+    .results-list::-webkit-scrollbar-track {
+      background: transparent;
+    }
+
+    .results-list::-webkit-scrollbar-thumb {
+      background: rgba(148, 163, 184, 0.5);
+      border-radius: 999px;
+    }
+
+    .result-item {
+      padding: 7px 8px;
+      border-radius: 11px;
+      border: 1px solid transparent;
+      background: transparent;
+      display: flex;
+      flex-direction: column;
+      gap: 2px;
+      cursor: pointer;
+      transition: background-color var(--transition-fast), border-color var(--transition-fast),
+        transform 90ms ease-out, box-shadow var(--transition-fast);
+    }
+
+    .result-item:hover {
+      background: rgba(15, 23, 42, 0.95);
+      border-color: rgba(148, 163, 184, 0.7);
+      transform: translateY(-0.5px);
+      box-shadow: 0 7px 16px rgba(15, 23, 42, 0.9);
+    }
+
+    .result-item.active {
+      border-color: var(--accent-soft-strong);
+      background: radial-gradient(circle at 0 0, rgba(34, 197, 94, 0.16), rgba(15, 23, 42, 0.98));
+      box-shadow: 0 0 0 1px rgba(34, 197, 94, 0.4);
+    }
+
+    .result-main-row {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 8px;
+    }
+
+    .result-title {
+      font-size: 13px;
+      font-weight: 500;
+    }
+
+    .result-score-chip {
+      border-radius: 999px;
+      padding: 2px 7px;
+      font-size: 11px;
+      display: inline-flex;
+      align-items: center;
+      gap: 5px;
+      background: rgba(15, 23, 42, 0.9);
+      border: 1px solid rgba(34, 197, 94, 0.6);
+      color: var(--accent-muted);
+    }
+
+    .result-score-chip span.bar {
+      width: 40px;
+      height: 4px;
+      border-radius: 999px;
+      background: rgba(15, 23, 42, 0.9);
+      overflow: hidden;
+      position: relative;
+    }
+
+    .result-score-chip span.bar-inner {
+      position: absolute;
+      inset: 0;
+      background: linear-gradient(90deg, #22c55e, #4ade80);
+      transform-origin: left;
+    }
+
+    .result-meta {
+      font-size: 11px;
+      color: var(--text-muted);
+    }
+
+    .empty-state {
+      font-size: 12px;
+      color: var(--text-muted);
+      padding: 4px 2px 2px;
+    }
+
+    .empty-state strong {
+      color: var(--text-soft);
+      font-weight: 500;
+    }
+
+    .status-row {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      font-size: 11px;
+      color: var(--text-muted);
+      margin-top: 2px;
+    }
+
+    .status-dot {
+      width: 7px;
+      height: 7px;
+      border-radius: 999px;
+    }
+
+    .status-dot.ok {
+      background: radial-gradient(circle, var(--accent-muted) 0, #16a34a 60%);
+      box-shadow: 0 0 0 3px rgba(34, 197, 94, 0.2);
+    }
+
+    .status-dot.error {
+      background: radial-gradient(circle, #fb7185 0, #b91c1c 60%);
+      box-shadow: 0 0 0 3px rgba(248, 113, 113, 0.2);
+    }
+
+    .status-text-error {
+      color: #fecaca;
+    }
+
+    .map-shell {
+      position: relative;
+      flex: 1;
+      border-radius: 19px;
+      overflow: hidden;
+      background: #020617;
+      border: 1px solid rgba(148, 163, 184, 0.4);
+    }
+
+    #map {
+      position: absolute;
+      inset: 0;
+    }
+
+    .map-overlay-top {
+      position: absolute;
+      top: 10px;
+      left: 10px;
+      right: 10px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 8px;
+      pointer-events: none;
+    }
+
+    .map-pill {
+      pointer-events: auto;
+      border-radius: 999px;
+      border: 1px solid rgba(15, 23, 42, 0.8);
+      background: radial-gradient(circle at top left, rgba(15, 23, 42, 0.96), rgba(15, 23, 42, 0.96));
+      padding: 4px 9px;
+      font-size: 11px;
+      color: var(--text-soft);
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      box-shadow: 0 10px 30px rgba(15, 23, 42, 0.85);
+    }
+
+    .map-pill span.dot {
+      width: 8px;
+      height: 8px;
+      border-radius: 999px;
+      background: radial-gradient(circle, var(--accent-muted) 0, #16a34a 60%);
+      box-shadow: 0 0 0 3px rgba(34, 197, 94, 0.2);
+    }
+
+    .map-pill span.coords {
+      font-variant-numeric: tabular-nums;
+      color: var(--text-main);
+    }
+
+    .map-pill span.sub {
+      color: var(--text-muted);
+    }
+
+    .map-pill-secondary {
+      pointer-events: auto;
+      border-radius: 999px;
+      border: 1px solid rgba(148, 163, 184, 0.45);
+      background: radial-gradient(circle at top left, rgba(15, 23, 42, 0.96), rgba(15, 23, 42, 0.96));
+      padding: 3px 8px;
+      font-size: 11px;
+      color: var(--text-muted);
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      box-shadow: 0 10px 30px rgba(15, 23, 42, 0.8);
+    }
+
+    .map-pill-secondary span {
+      white-space: nowrap;
+    }
+
+    .map-pill-secondary-key {
+      color: var(--text-soft);
+    }
+
+    .leaflet-container {
+      background: #020617;
+    }
+
+    .leaflet-control-attribution {
+      font-size: 10px;
+      color: var(--text-muted);
+    }
+
+    .leaflet-control-attribution a {
+      color: var(--accent-muted);
+    }
+
+    .leaflet-bar a {
+      background: rgba(15, 23, 42, 0.96);
+      color: var(--text-soft);
+      border-color: rgba(148, 163, 184, 0.7);
+    }
+
+    .leaflet-bar a:hover {
+      background: rgba(15, 23, 42, 0.9);
+      color: var(--text-main);
+    }
+
+    @media (max-width: 600px) {
+      .brand-row {
+        flex-direction: column;
+        align-items: flex-start;
+        gap: 6px;
+      }
+
+      .panel-left {
+        flex: 0 0 auto;
+      }
+
+      .layout {
+        min-height: auto;
+      }
+
+      .map-overlay-top {
+        top: 8px;
+        left: 8px;
+        right: 8px;
+      }
+
+      .map-pill {
+        display: none;
+      }
+    }
+  </style>
+</head>
+<body>
+  <div class="page">
+    <header class="brand-row">
+      <div class="brand-main">
+        <div class="brand-mark">
+          <span>MSK</span>
+        </div>
+        <div>
+          <div class="brand-text-main">
+            Геокодер&nbsp;<span class="highlight">Москвы</span>
+          </div>
+          <div class="brand-text-sub">
+            Быстрый поиск зданий по адресу с точностью до корпуса и строения.
+          </div>
+        </div>
+      </div>
+      <div class="chip">
+        <span class="chip-dot"></span>
+        <span class="chip-label">API · FastAPI · OSM · ML‑скоринг</span>
+      </div>
+    </header>
+
+    <main class="layout">
+      <section class="panel panel-left" aria-label="Поиск по адресу">
+        <div class="search-header">
+          <div class="search-title-row">
+            <div class="search-title">Найдите здание по адресу</div>
+            <div class="badge">
+              <span class="badge-dot"></span>
+              <span>online‑поиск</span>
+            </div>
+          </div>
+          <div class="search-subtitle">
+            Введите адрес в произвольной форме — геокодер приведёт его к нормализованному виду
+            и найдёт наиболее вероятные кандидаты.
+          </div>
+        </div>
+
+        <form id="search-form" class="search-shell" autocomplete="off">
+          <div class="search-row">
+            <div class="search-input-wrap">
+              <div class="search-prefix">RU</div>
+              <input
+                id="address-input"
+                class="search-input"
+                type="text"
+                name="address"
+                placeholder="Например: Москва, Дорожная улица, 50 к1 с15"
+                aria-label="Адрес для геокодирования"
+                required
+              />
+            </div>
+            <button type="submit" id="search-button" class="search-button">
+              <span class="icon">↵</span>
+              <span id="search-button-label">Найти</span>
+            </button>
+          </div>
+
+          <div class="search-meta-row">
+            <div class="search-meta-text">
+              Используется нормализованный формат: <strong>город, улица, номер корпуса/строения</strong>.
+            </div>
+            <div class="algo-toggle" role="radiogroup" aria-label="Выбор алгоритма геокодирования">
+              <button
+                type="button"
+                class="algo-option active"
+                data-algo="advanced"
+                aria-pressed="true"
+              >
+                <span class="dot"></span>
+                <span>Advanced</span>
+              </button>
+              <button
+                type="button"
+                class="algo-option"
+                data-algo="base"
+                aria-pressed="false"
+              >
+                <span class="dot"></span>
+                <span>Base</span>
+              </button>
+            </div>
+          </div>
+
+          <div class="examples-row" aria-label="Примеры адресов">
+            <button type="button" class="example-pill">
+              Москва, Дорожная улица, 50 к1 с15
+            </button>
+            <button type="button" class="example-pill">
+              Москва, Тверская улица, 10
+            </button>
+            <button type="button" class="example-pill">
+              Москва, МКАД, 78-й километр, 2 к2
+            </button>
+          </div>
+        </form>
+
+        <section class="results-shell" aria-label="Результаты геокодирования">
+          <div class="results-header-row">
+            <div class="results-label">
+              <span class="results-label-dot"></span>
+              <span id="results-title">Результаты появятся здесь</span>
+            </div>
+            <div class="results-count" id="results-count"></div>
+          </div>
+          <ul id="results-list" class="results-list"></ul>
+          <div id="results-empty" class="empty-state">
+            <strong>Совет.</strong> Начните с точного адреса, а затем экспериментируйте с опечатками и
+            сокращениями — так проще почувствовать поведение алгоритма.
+          </div>
+          <div class="status-row">
+            <span id="status-dot" class="status-dot"></span>
+            <span id="status-text"></span>
+          </div>
+        </section>
+      </section>
+
+      <section class="panel panel-right" aria-label="Карта результатов">
+        <div class="map-shell">
+          <div id="map" role="region" aria-label="Карта Москвы"></div>
+          <div class="map-overlay-top">
+            <div class="map-pill" id="map-pill-main" style="display: none;">
+              <span class="dot"></span>
+              <span class="coords" id="map-pill-coords"></span>
+              <span class="sub" id="map-pill-sub"></span>
+            </div>
+            <div class="map-pill-secondary">
+              <span class="map-pill-secondary-key">Навигация</span>
+              <span>колёсико — масштаб</span>
+              <span>перетаскивание — панорамирование</span>
+            </div>
+          </div>
+        </div>
+      </section>
+    </main>
+  </div>
+
+  <!-- Leaflet JS -->
+  <script
+    src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"
+    integrity="sha256-20nQCchB9co0qIjJZRGuk2/Z9VM+kNiyxNV1lvTlZBo="
+    crossorigin=""
+  ></script>
+  <script>
+    (function () {
+      const MOSCOW_CENTER = [55.751244, 37.618423];
+      const MOSCOW_ZOOM = 11;
+
+      let map;
+      let markersLayer;
+      let activeMarker = null;
+      let activeAlgorithm = "advanced";
+
+      const form = document.getElementById("search-form");
+      const input = document.getElementById("address-input");
+      const button = document.getElementById("search-button");
+      const buttonLabel = document.getElementById("search-button-label");
+      const resultsList = document.getElementById("results-list");
+      const resultsEmpty = document.getElementById("results-empty");
+      const resultsTitle = document.getElementById("results-title");
+      const resultsCount = document.getElementById("results-count");
+      const statusDot = document.getElementById("status-dot");
+      const statusText = document.getElementById("status-text");
+      const algoButtons = document.querySelectorAll(".algo-option");
+      const examplePills = document.querySelectorAll(".example-pill");
+      const mapPillMain = document.getElementById("map-pill-main");
+      const mapPillCoords = document.getElementById("map-pill-coords");
+      const mapPillSub = document.getElementById("map-pill-sub");
+
+      function setLoading(isLoading) {
+        if (isLoading) {
+          button.disabled = true;
+          buttonLabel.textContent = "Поиск…";
+          statusDot.className = "status-dot ok";
+          statusText.textContent = "Отправляем запрос к API геокодера…";
+        } else {
+          button.disabled = false;
+          buttonLabel.textContent = "Найти";
+        }
+      }
+
+      function formatScore(score) {
+        if (typeof score !== "number" || Number.isNaN(score)) return "—";
+        return score.toFixed(2);
+      }
+
+      function updateStatus(kind, message) {
+        if (!message) {
+          statusDot.className = "status-dot";
+          statusText.textContent = "";
+          return;
+        }
+
+        if (kind === "ok") {
+          statusDot.className = "status-dot ok";
+          statusText.className = "";
+        } else if (kind === "error") {
+          statusDot.className = "status-dot error";
+          statusText.className = "status-text-error";
+        } else {
+          statusDot.className = "status-dot";
+          statusText.className = "";
+        }
+        statusText.textContent = message;
+      }
+
+      function clearResults() {
+        resultsList.innerHTML = "";
+        resultsCount.textContent = "";
+        resultsTitle.textContent = "Результаты появятся здесь";
+        resultsEmpty.style.display = "";
+        updateStatus(null, "");
+      }
+
+      function selectAlgorithm(algo) {
+        activeAlgorithm = algo;
+        algoButtons.forEach((btn) => {
+          const isActive = btn.dataset.algo === algo;
+          btn.classList.toggle("active", isActive);
+          btn.setAttribute("aria-pressed", String(isActive));
+        });
+      }
+
+      function updateMapPill(coords, text) {
+        if (!coords) {
+          mapPillMain.style.display = "none";
+          mapPillCoords.textContent = "";
+          mapPillSub.textContent = "";
+          return;
+        }
+        const [lat, lon] = coords;
+        mapPillMain.style.display = "inline-flex";
+        mapPillCoords.textContent = lat.toFixed(5) + " · " + lon.toFixed(5);
+        mapPillSub.textContent = text || "";
+      }
+
+      function setupMap() {
+        map = L.map("map", {
+          center: MOSCOW_CENTER,
+          zoom: MOSCOW_ZOOM,
+          zoomControl: true,
+        });
+
+        L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {
+          maxZoom: 19,
+          attribution: "&copy; OpenStreetMap contributors",
+        }).addTo(map);
+
+        markersLayer = L.layerGroup().addTo(map);
+      }
+
+      function createMarker(obj, isPrimary) {
+        const marker = L.circleMarker([obj.lat, obj.lon], {
+          radius: isPrimary ? 8 : 6,
+          color: isPrimary ? "#22c55e" : "#38bdf8",
+          weight: isPrimary ? 2.5 : 2,
+          fillColor: isPrimary ? "#22c55e" : "#38bdf8",
+          fillOpacity: isPrimary ? 0.7 : 0.5,
+        });
+
+        const addressText = [obj.locality, obj.street, obj.number]
+          .filter(Boolean)
+          .join(", ");
+
+        const scoreText =
+          typeof obj.score === "number"
+            ? `Score: ${obj.score.toFixed(3)}`
+            : "Score: —";
+
+        marker.bindPopup(
+          "<strong>" +
+            addressText +
+            "</strong><br/><span style='font-size:11px;color:#9ca3af;'>" +
+            scoreText +
+            "</span>"
+        );
+
+        marker.addTo(markersLayer);
+        return marker;
+      }
+
+      function renderResults(objects, searchedAddress) {
+        resultsList.innerHTML = "";
+        resultsEmpty.style.display = "none";
+
+        if (!objects || objects.length === 0) {
+          resultsTitle.textContent = "Ничего не найдено";
+          resultsCount.textContent = "";
+          updateStatus(
+            "error",
+            "По этому запросу не удалось найти здания. Проверьте написание улицы и номера дома."
+          );
+          markersLayer.clearLayers();
+          updateMapPill(null, "");
+          map.setView(MOSCOW_CENTER, MOSCOW_ZOOM);
+          return;
+        }
+
+        resultsTitle.textContent = "Найденные здания";
+        resultsCount.textContent = objects.length + " " + pluralize(objects.length, "результат", "результата", "результатов");
+
+        markersLayer.clearLayers();
+        activeMarker = null;
+
+        const bounds = [];
+
+        objects.forEach((obj, index) => {
+          const li = document.createElement("li");
+          li.className = "result-item" + (index === 0 ? " active" : "");
+
+          const addressText = [obj.locality, obj.street, obj.number]
+            .filter(Boolean)
+            .join(", ");
+
+          const score = typeof obj.score === "number" ? obj.score : null;
+
+          const mainRow = document.createElement("div");
+          mainRow.className = "result-main-row";
+
+          const titleEl = document.createElement("div");
+          titleEl.className = "result-title";
+          titleEl.textContent = addressText;
+
+          const scoreChip = document.createElement("div");
+          scoreChip.className = "result-score-chip";
+
+          const labelSpan = document.createElement("span");
+          labelSpan.textContent = "score " + formatScore(score);
+
+          const bar = document.createElement("span");
+          bar.className = "bar";
+          const barInner = document.createElement("span");
+          barInner.className = "bar-inner";
+          const scaleX = score === null ? 0 : Math.max(0, Math.min(1, score));
+          barInner.style.transform = "scaleX(" + scaleX + ")";
+          bar.appendChild(barInner);
+
+          scoreChip.appendChild(labelSpan);
+          scoreChip.appendChild(bar);
+
+          mainRow.appendChild(titleEl);
+          mainRow.appendChild(scoreChip);
+
+          const meta = document.createElement("div");
+          meta.className = "result-meta";
+          meta.textContent =
+            "Широта " +
+            obj.lat.toFixed(6) +
+            " · Долгота " +
+            obj.lon.toFixed(6);
+
+          li.appendChild(mainRow);
+          li.appendChild(meta);
+
+          const marker = createMarker(obj, index === 0);
+
+          if (index === 0) {
+            activeMarker = marker;
+            marker.openPopup();
+            updateMapPill([obj.lat, obj.lon], addressText);
+          }
+
+          bounds.push([obj.lat, obj.lon]);
+
+          li.addEventListener("click", () => {
+            document
+              .querySelectorAll(".result-item")
+              .forEach((item) => item.classList.remove("active"));
+            li.classList.add("active");
+
+            if (activeMarker) {
+              activeMarker.setStyle({
+                radius: 6,
+                color: "#38bdf8",
+                fillColor: "#38bdf8",
+              });
+            }
+
+            marker.setStyle({
+              radius: 8,
+              color: "#22c55e",
+              fillColor: "#22c55e",
+            });
+
+            activeMarker = marker;
+            map.setView([obj.lat, obj.lon], 17, { animate: true });
+            marker.openPopup();
+            updateMapPill([obj.lat, obj.lon], addressText);
+          });
+
+          resultsList.appendChild(li);
+        });
+
+        if (bounds.length > 0) {
+          const boundsObj = L.latLngBounds(bounds);
+          map.fitBounds(boundsObj, { padding: [40, 40] });
+        }
+
+        const normalizedAddress = searchedAddress || input.value.trim();
+        updateStatus(
+          "ok",
+          "Готово. Найдено " +
+            objects.length +
+            " " +
+            pluralize(objects.length, "кандидат", "кандидата", "кандидатов") +
+            " для запроса: \"" +
+            normalizedAddress +
+            "\"."
+        );
+      }
+
+      function pluralize(n, one, few, many) {
+        const nAbs = Math.abs(n);
+        const n10 = nAbs % 10;
+        const n100 = nAbs % 100;
+        if (n10 === 1 && n100 !== 11) return one;
+        if (n10 >= 2 && n10 <= 4 && (n100 < 10 || n100 >= 20)) return few;
+        return many;
+      }
+
+      async function handleSubmit(event) {
+        event.preventDefault();
+        const address = input.value.trim();
+        if (!address) {
+          updateStatus("error", "Введите адрес для поиска.");
+          input.focus();
+          return;
+        }
+
+        setLoading(true);
+        clearResults();
+
+        try {
+          const response = await fetch("/geocode", {
+            method: "POST",
+            headers: {
+              "Content-Type": "application/json",
+            },
+            body: JSON.stringify({
+              address: address,
+              algorithm: activeAlgorithm,
+              max_results: 50,
+            }),
+          });
+
+          if (!response.ok) {
+            let detail = "";
+            try {
+              const err = await response.json();
+              detail = err.detail || "";
+            } catch {
+              // ignore
+            }
+            throw new Error(
+              detail ||
+                "Сервер вернул ошибку " +
+                  response.status +
+                  ". Проверьте, что API запущено и данные загружены."
+            );
+          }
+
+          const data = await response.json();
+          renderResults(data.objects || [], data.searched_address);
+        } catch (error) {
+          console.error(error);
+          resultsTitle.textContent = "Ошибка при запросе";
+          updateStatus(
+            "error",
+            error && error.message
+              ? error.message
+              : "Не удалось выполнить запрос. Проверьте подключение к серверу и попробуйте ещё раз."
+          );
+        } finally {
+          setLoading(false);
+        }
+      }
+
+      document.addEventListener("DOMContentLoaded", function () {
+        setupMap();
+
+        form.addEventListener("submit", handleSubmit);
+
+        algoButtons.forEach((btn) => {
+          btn.addEventListener("click", () => {
+            selectAlgorithm(btn.dataset.algo || "advanced");
+          });
+        });
+
+        examplePills.forEach((pill) => {
+          pill.addEventListener("click", () => {
+            const text = pill.textContent.trim();
+            if (text) {
+              input.value = text;
+              input.focus();
+              input.setSelectionRange(text.length, text.length);
+              form.dispatchEvent(new Event("submit", { cancelable: true }));
+            }
+          });
+        });
+
+        setTimeout(() => {
+          input.focus();
+        }, 200);
+      });
+    })();
+  </script>
+</body>
+</html>
+
+
+
